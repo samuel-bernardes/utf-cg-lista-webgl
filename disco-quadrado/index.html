@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="pt-BR">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Disco Quadrado</title>
+		<link rel="stylesheet" href="../index.css" />
+		<style>
+			:root {
+				color-scheme: dark;
+				--bg: #06111d;
+				--bg-top: #0c1828;
+				--bg-glow: rgba(41, 128, 185, 0.28);
+				--bg-spot-x: right;
+				--bg-spot-y: top;
+				--bg-glow-size: 24%;
+				--panel: rgba(9, 23, 37, 0.85);
+				--border: rgba(173, 216, 255, 0.16);
+				--text: #eff7ff;
+				--muted: #b0c4d6;
+				--accent: #7fd1ff;
+				--kbd-border: rgba(127, 209, 255, 0.3);
+				--kbd-bg: rgba(127, 209, 255, 0.08);
+				--panel-min: 280px;
+				--panel-max: 340px;
+			}
+		</style>
+	</head>
+
+	<body class="exercise-body">
+		<main class="exercise-layout">
+			<section class="exercise-panel">
+				<h1>Disco Quadrado</h1>
+				<p>
+					Exercício 2 da lista: desenhar um quadrado furado com
+					triangulação e mostrar o contorno por cima quando a tecla
+					<kbd>c</kbd> for pressionada.
+					<p>
+						<strong style="color: #ffd77e;">Observação:</strong> o contorno pedido no enunciado é preto mas
+						como fiz um tema dark o contorno atual é branco.
+					</p>
+				</p>
+				<p class="exercise-status" id="status">Contorno: desligado</p>
+				<a href="../index.html">Voltar para home</a>
+			</section>
+			<canvas id="glcanvas" class="exercise-canvas"></canvas>
+		</main>
+
+		<script>
+			const canvas = document.querySelector('.exercise-canvas');
+			const statusText = document.getElementById('status');
+			const gl = canvas.getContext('webgl2');
+
+			if (!gl) {
+				console.error('WebGL2 não está disponível');
+				throw new Error('WebGL2 não suportado');
+			}
+
+			const vertexShaderCode = `#version 300 es
+				in vec2 position;
+				in vec3 color;
+				out vec3 vColor;
+
+				void main() {
+					vColor = color;
+					gl_Position = vec4(position, 0.0, 1.0);
+				}
+			`;
+
+			const fragmentShaderCode = `#version 300 es
+				precision mediump float;
+				in vec3 vColor;
+				out vec4 outColor;
+
+				void main() {
+					outColor = vec4(vColor, 1.0);
+				}
+			`;
+
+			const createShader = (type, source) => {
+				const shader = gl.createShader(type);
+				gl.shaderSource(shader, source);
+				gl.compileShader(shader);
+				return shader;
+			};
+
+			function resizeCanvasToDisplaySize(glContext) {
+				const width = glContext.canvas.clientWidth;
+				const height = glContext.canvas.clientHeight;
+
+				if (
+					glContext.canvas.width !== width ||
+					glContext.canvas.height !== height
+				) {
+					glContext.canvas.width = width;
+					glContext.canvas.height = height;
+				}
+			}
+
+			function pushVertex(vertices, x, y, color) {
+				vertices.push(x, y, color[0], color[1], color[2]);
+			}
+
+			function buildGeometry(width, height) {
+				const aspectCorrection = height / width;
+				const outerHalfY = 0.56;
+				const outerHalfX = outerHalfY * aspectCorrection;
+				const innerHalfX = outerHalfX * 0.48;
+				const innerHalfY = outerHalfY * 0.48;
+
+				const outer = [
+					[-outerHalfX, -outerHalfY],
+					[outerHalfX, -outerHalfY],
+					[outerHalfX, outerHalfY],
+					[-outerHalfX, outerHalfY],
+				];
+
+				const inner = [
+					[-innerHalfX, -innerHalfY],
+					[innerHalfX, -innerHalfY],
+					[innerHalfX, innerHalfY],
+					[-innerHalfX, innerHalfY],
+				];
+
+				const fillColor = [0.12, 0.45, 0.95];
+				const lineColor = [1.0, 1.0, 1.0];
+				const fillVertices = [];
+				const lineVertices = [];
+
+				const rings = [
+					[outer[0], outer[1], inner[1], inner[0]],
+					[outer[1], outer[2], inner[2], inner[1]],
+					[outer[2], outer[3], inner[3], inner[2]],
+					[outer[3], outer[0], inner[0], inner[3]],
+				];
+
+				rings.forEach(([a, b, c, d]) => {
+					pushVertex(fillVertices, a[0], a[1], fillColor);
+					pushVertex(fillVertices, b[0], b[1], fillColor);
+					pushVertex(fillVertices, c[0], c[1], fillColor);
+					pushVertex(fillVertices, a[0], a[1], fillColor);
+					pushVertex(fillVertices, c[0], c[1], fillColor);
+					pushVertex(fillVertices, d[0], d[1], fillColor);
+				});
+
+				const outlinePairs = [
+					[outer[0], outer[1]],
+					[outer[1], outer[2]],
+					[outer[2], outer[3]],
+					[outer[3], outer[0]],
+					[inner[0], inner[1]],
+					[inner[1], inner[2]],
+					[inner[2], inner[3]],
+					[inner[3], inner[0]],
+				];
+
+				outlinePairs.forEach(([a, b]) => {
+					pushVertex(lineVertices, a[0], a[1], lineColor);
+					pushVertex(lineVertices, b[0], b[1], lineColor);
+				});
+
+				return {
+					fillVertices: new Float32Array(fillVertices),
+					lineVertices: new Float32Array(lineVertices),
+				};
+			}
+
+			const program = gl.createProgram();
+			gl.attachShader(
+				program,
+				createShader(gl.VERTEX_SHADER, vertexShaderCode),
+			);
+			gl.attachShader(
+				program,
+				createShader(gl.FRAGMENT_SHADER, fragmentShaderCode),
+			);
+			gl.linkProgram(program);
+			gl.useProgram(program);
+
+			const positionAttributeLocation = gl.getAttribLocation(
+				program,
+				'position',
+			);
+			const colorAttributeLocation = gl.getAttribLocation(
+				program,
+				'color',
+			);
+
+			const vao = gl.createVertexArray();
+			gl.bindVertexArray(vao);
+			const vbo = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+
+			const stride = 5 * Float32Array.BYTES_PER_ELEMENT;
+			gl.vertexAttribPointer(
+				positionAttributeLocation,
+				2,
+				gl.FLOAT,
+				false,
+				stride,
+				0,
+			);
+			gl.enableVertexAttribArray(positionAttributeLocation);
+
+			gl.vertexAttribPointer(
+				colorAttributeLocation,
+				3,
+				gl.FLOAT,
+				false,
+				stride,
+				2 * Float32Array.BYTES_PER_ELEMENT,
+			);
+			gl.enableVertexAttribArray(colorAttributeLocation);
+			gl.bindVertexArray(null);
+			let showContour = false;
+
+			function updateStatus() {
+				statusText.textContent = `Contorno: ${showContour ? 'ligado' : 'desligado'}`;
+			}
+
+			function drawScene() {
+				resizeCanvasToDisplaySize(gl);
+				gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+				gl.clearColor(0.03, 0.07, 0.12, 1.0);
+				gl.clear(gl.COLOR_BUFFER_BIT);
+
+				const { fillVertices, lineVertices } = buildGeometry(
+					gl.canvas.width,
+					gl.canvas.height,
+				);
+
+				gl.useProgram(program);
+				gl.bindVertexArray(vao);
+				gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+
+				gl.bufferData(gl.ARRAY_BUFFER, fillVertices, gl.STATIC_DRAW);
+				gl.drawArrays(gl.TRIANGLES, 0, fillVertices.length / 5);
+
+				if (showContour) {
+					gl.bufferData(
+						gl.ARRAY_BUFFER,
+						lineVertices,
+						gl.STATIC_DRAW,
+					);
+					gl.drawArrays(gl.LINES, 0, lineVertices.length / 5);
+				}
+
+				gl.bindVertexArray(null);
+			}
+
+			window.addEventListener('resize', drawScene);
+			window.addEventListener('keydown', (event) => {
+				if (event.key.toLowerCase() === 'c' || event.code === 'KeyC') {
+					event.preventDefault();
+					showContour = !showContour;
+					updateStatus();
+					drawScene();
+				}
+			});
+
+			updateStatus();
+			drawScene();
+		</script>
+	</body>
+</html>

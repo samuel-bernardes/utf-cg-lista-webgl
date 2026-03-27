@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="pt-BR">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Polígono Regular</title>
+		<link rel="stylesheet" href="../index.css" />
+		<style>
+			:root {
+				color-scheme: dark;
+				--bg: #07131b;
+				--bg-top: #0d1c28;
+				--bg-glow: rgba(255, 211, 111, 0.17);
+				--bg-spot-x: 80%;
+				--bg-spot-y: 10%;
+				--bg-glow-size: 22%;
+				--panel: rgba(9, 25, 35, 0.84);
+				--border: rgba(197, 227, 255, 0.18);
+				--text: #ecf7ff;
+				--muted: #b6cad6;
+				--accent: #ffd36f;
+				--kbd-border: rgba(255, 211, 111, 0.28);
+				--kbd-bg: rgba(255, 211, 111, 0.08);
+				--panel-min: 280px;
+				--panel-max: 340px;
+			}
+		</style>
+	</head>
+
+	<body class="exercise-body">
+		<main class="exercise-layout">
+			<section class="exercise-panel">
+				<h1>Polígono Regular</h1>
+				<p>
+					Exercício 3 da lista: desenhar um polígono regular no centro
+					da janela usando uma constante <code>NUM_LADOS</code>.
+				</p>
+				<p>
+					Ulize as teclas <kbd>+</kbd> para aumentar ou <kbd>-</kbd>
+					para reduzir a quantidade de lados.
+				</p>
+				<p class="exercise-status" id="status">Lados atuais: 6</p>
+				<a href="../index.html">Voltar para home</a>
+			</section>
+			<canvas id="glcanvas" class="exercise-canvas"></canvas>
+		</main>
+
+		<script>
+			const canvas = document.querySelector('.exercise-canvas');
+			const statusText = document.getElementById('status');
+			const gl = canvas.getContext('webgl2');
+
+			if (!gl) {
+				console.error('WebGL2 não está disponível');
+				throw new Error('WebGL2 não suportado');
+			}
+
+			const vertexShaderCode = `#version 300 es
+				in vec2 position;
+				in vec3 color;
+				out vec3 vColor;
+
+				void main() {
+					vColor = color;
+					gl_Position = vec4(position, 0.0, 1.0);
+				}
+			`;
+
+			const fragmentShaderCode = `#version 300 es
+				precision mediump float;
+				in vec3 vColor;
+				out vec4 outColor;
+
+				void main() {
+					outColor = vec4(vColor, 1.0);
+				}
+			`;
+
+			const NUM_LADOS = 6;
+			let numLados = NUM_LADOS;
+
+			const createShader = (type, source) => {
+				const shader = gl.createShader(type);
+				gl.shaderSource(shader, source);
+				gl.compileShader(shader);
+				return shader;
+			};
+
+			function resizeCanvasToDisplaySize(glContext) {
+				const width = glContext.canvas.clientWidth;
+				const height = glContext.canvas.clientHeight;
+
+				if (
+					glContext.canvas.width !== width ||
+					glContext.canvas.height !== height
+				) {
+					glContext.canvas.width = width;
+					glContext.canvas.height = height;
+				}
+			}
+
+			function pushVertex(vertices, x, y, color) {
+				vertices.push(x, y, color[0], color[1], color[2]);
+			}
+
+			function buildPolygonGeometry(sideCount, width, height) {
+				const aspectCorrection = height / width;
+				const radiusY = 0.56;
+				const radiusX = radiusY * aspectCorrection;
+				const fillColor = [0.97, 0.7, 0.18];
+				const lineColor = [0.09, 0.1, 0.12];
+
+				const fillVertices = [];
+				const lineVertices = [];
+
+				pushVertex(fillVertices, 0, 0, fillColor);
+
+				for (let i = 0; i <= sideCount; i += 1) {
+					const angle = -Math.PI / 2 + (i * Math.PI * 2) / sideCount;
+					const x = Math.cos(angle) * radiusX;
+					const y = Math.sin(angle) * radiusY;
+					pushVertex(fillVertices, x, y, fillColor);
+				}
+
+				for (let i = 0; i <= sideCount; i += 1) {
+					const angle = -Math.PI / 2 + (i * Math.PI * 2) / sideCount;
+					const x = Math.cos(angle) * radiusX;
+					const y = Math.sin(angle) * radiusY;
+					pushVertex(lineVertices, x, y, lineColor);
+				}
+
+				return {
+					fillVertices: new Float32Array(fillVertices),
+					lineVertices: new Float32Array(lineVertices),
+				};
+			}
+
+			const program = gl.createProgram();
+			gl.attachShader(
+				program,
+				createShader(gl.VERTEX_SHADER, vertexShaderCode),
+			);
+			gl.attachShader(
+				program,
+				createShader(gl.FRAGMENT_SHADER, fragmentShaderCode),
+			);
+			gl.linkProgram(program);
+			gl.useProgram(program);
+			const positionAttributeLocation = gl.getAttribLocation(
+				program,
+				'position',
+			);
+			const colorAttributeLocation = gl.getAttribLocation(
+				program,
+				'color',
+			);
+			const vao = gl.createVertexArray();
+			gl.bindVertexArray(vao);
+			const vbo = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+
+			const stride = 5 * Float32Array.BYTES_PER_ELEMENT;
+			gl.vertexAttribPointer(
+				positionAttributeLocation,
+				2,
+				gl.FLOAT,
+				false,
+				stride,
+				0,
+			);
+			gl.enableVertexAttribArray(positionAttributeLocation);
+
+			gl.vertexAttribPointer(
+				colorAttributeLocation,
+				3,
+				gl.FLOAT,
+				false,
+				stride,
+				2 * Float32Array.BYTES_PER_ELEMENT,
+			);
+			gl.enableVertexAttribArray(colorAttributeLocation);
+			gl.bindVertexArray(null);
+
+			function updateStatus() {
+				statusText.textContent = `Lados atuais: ${numLados}`;
+			}
+
+			function drawScene() {
+				resizeCanvasToDisplaySize(gl);
+				gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+				gl.clearColor(0.03, 0.07, 0.11, 1.0);
+				gl.clear(gl.COLOR_BUFFER_BIT);
+
+				const { fillVertices, lineVertices } = buildPolygonGeometry(
+					numLados,
+					gl.canvas.width,
+					gl.canvas.height,
+				);
+
+				gl.useProgram(program);
+				gl.bindVertexArray(vao);
+				gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+
+				gl.bufferData(gl.ARRAY_BUFFER, fillVertices, gl.STATIC_DRAW);
+				gl.drawArrays(gl.TRIANGLE_FAN, 0, fillVertices.length / 5);
+
+				gl.bufferData(gl.ARRAY_BUFFER, lineVertices, gl.STATIC_DRAW);
+				gl.drawArrays(gl.LINE_STRIP, 0, lineVertices.length / 5);
+
+				gl.bindVertexArray(null);
+			}
+
+			window.addEventListener('resize', drawScene);
+			window.addEventListener('keydown', (event) => {
+				if (event.key === '+' || event.key === '=') {
+					numLados += 1;
+					updateStatus();
+					drawScene();
+				} else if (event.key === '-' || event.key === '_') {
+					numLados = Math.max(3, numLados - 1);
+					updateStatus();
+					drawScene();
+				}
+			});
+
+			updateStatus();
+			drawScene();
+		</script>
+	</body>
+</html>

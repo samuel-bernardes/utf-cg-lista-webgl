@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="pt-BR">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Quadrados Felizes</title>
+		<link rel="stylesheet" href="../index.css" />
+		<style>
+			:root {
+				color-scheme: dark;
+				--bg: #09131f;
+				--bg-top: #0c1828;
+				--bg-glow: rgba(53, 117, 194, 0.25);
+				--bg-spot-x: top;
+				--bg-spot-y: center;
+				--bg-glow-size: 30%;
+				--panel: rgba(6, 17, 28, 0.82);
+				--border: rgba(167, 202, 255, 0.18);
+				--text: #eef6ff;
+				--muted: #b7c7d9;
+				--accent: #ffd77e;
+				--panel-min: 260px;
+				--panel-max: 320px;
+			}
+		</style>
+	</head>
+
+	<body class="exercise-body">
+		<main class="exercise-layout">
+			<section class="exercise-panel">
+				<h1>Quadrados Felizes</h1>
+				<p>
+					Exercício 1 da lista: desenhar 9 quadrados em uma grade 3x3,
+					cada um com uma cor diferente.
+				</p>
+				<a href="../index.html">Voltar para home</a>
+			</section>
+			<canvas id="glcanvas" class="exercise-canvas"></canvas>
+		</main>
+
+		<script>
+			const canvas = document.querySelector('.exercise-canvas');
+			const gl = canvas.getContext('webgl2');
+
+			if (!gl) {
+				console.error('WebGL2 não está disponível');
+				throw new Error('WebGL2 não suportado');
+			}
+
+			// Shaders executados pela GPU em cada vértice e fragmento.
+			const vertexShaderCode = `#version 300 es
+				in vec2 position;
+				in vec3 color;
+				out vec3 vColor;
+
+				void main() {
+					vColor = color;
+					gl_Position = vec4(position, 0.0, 1.0);
+				}
+			`;
+
+			const fragmentShaderCode = `#version 300 es
+				precision mediump float;
+				in vec3 vColor;
+				out vec4 outColor;
+
+				void main() {
+					outColor = vec4(vColor, 1.0);
+				}
+			`;
+
+			const squareColors = [
+				[0.0, 0.0, 0.0],
+				[1.0, 0.0, 0.0],
+				[0.0, 1.0, 0.0],
+				[0.0, 0.0, 1.0],
+				[1.0, 1.0, 0.0],
+				[1.0, 0.0, 1.0],
+				[0.0, 1.0, 1.0],
+				[0.6, 0.6, 0.6],
+				[1.0, 1.0, 1.0],
+			];
+
+			const createShader = (type, source) => {
+				const shader = gl.createShader(type);
+				gl.shaderSource(shader, source);
+				gl.compileShader(shader);
+				return shader;
+			};
+
+			const program = gl.createProgram();
+			gl.attachShader(
+				program,
+				createShader(gl.VERTEX_SHADER, vertexShaderCode),
+			);
+			gl.attachShader(
+				program,
+				createShader(gl.FRAGMENT_SHADER, fragmentShaderCode),
+			);
+			gl.linkProgram(program);
+			gl.useProgram(program);
+
+			const positionAttributeLocation = gl.getAttribLocation(
+				program,
+				'position',
+			);
+			const colorAttributeLocation = gl.getAttribLocation(
+				program,
+				'color',
+			);
+
+			const vao = gl.createVertexArray();
+			gl.bindVertexArray(vao);
+
+			const vbo = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+
+			const stride = 5 * Float32Array.BYTES_PER_ELEMENT;
+			gl.vertexAttribPointer(
+				positionAttributeLocation,
+				2,
+				gl.FLOAT,
+				false,
+				stride,
+				0,
+			);
+			gl.enableVertexAttribArray(positionAttributeLocation);
+
+			gl.vertexAttribPointer(
+				colorAttributeLocation,
+				3,
+				gl.FLOAT,
+				false,
+				stride,
+				2 * Float32Array.BYTES_PER_ELEMENT,
+			);
+			gl.enableVertexAttribArray(colorAttributeLocation);
+
+			gl.bindVertexArray(null);
+
+			function resizeCanvasToDisplaySize(glContext) {
+				const displayWidth = glContext.canvas.clientWidth;
+				const displayHeight = glContext.canvas.clientHeight;
+
+				if (
+					glContext.canvas.width !== displayWidth ||
+					glContext.canvas.height !== displayHeight
+				) {
+					glContext.canvas.width = displayWidth;
+					glContext.canvas.height = displayHeight;
+				}
+			}
+
+			function pushSquare(vertices, cx, cy, hw, hh, color) {
+				vertices.push(
+					cx - hw,
+					cy - hh,
+					...color,
+					cx + hw,
+					cy - hh,
+					...color,
+					cx - hw,
+					cy + hh,
+					...color,
+					cx - hw,
+					cy + hh,
+					...color,
+					cx + hw,
+					cy - hh,
+					...color,
+					cx + hw,
+					cy + hh,
+					...color,
+				);
+			}
+
+			function buildGridVertices(width, height) {
+				const aspectCorrection = height / width;
+				const halfHeight = 0.18;
+				const halfWidth = halfHeight * aspectCorrection;
+				const gapY = 0.12;
+				const gapX = gapY * aspectCorrection;
+
+				const totalWidth = halfWidth * 2 * 3 + gapX * 2;
+				const totalHeight = halfHeight * 2 * 3 + gapY * 2;
+				const startX = -totalWidth / 2 + halfWidth;
+				const startY = totalHeight / 2 - halfHeight;
+
+				const vertices = [];
+				let colorIndex = 0;
+
+				for (let row = 0; row < 3; row += 1) {
+					for (let col = 0; col < 3; col += 1) {
+						const centerX = startX + col * (halfWidth * 2 + gapX);
+						const centerY = startY - row * (halfHeight * 2 + gapY);
+						pushSquare(
+							vertices,
+							centerX,
+							centerY,
+							halfWidth,
+							halfHeight,
+							squareColors[colorIndex],
+						);
+						colorIndex += 1;
+					}
+				}
+
+				return new Float32Array(vertices);
+			}
+
+			function drawScene() {
+				resizeCanvasToDisplaySize(gl);
+				gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+				gl.clearColor(0.03, 0.07, 0.12, 1.0);
+				gl.clear(gl.COLOR_BUFFER_BIT);
+
+				const vertices = buildGridVertices(
+					gl.canvas.width,
+					gl.canvas.height,
+				);
+
+				gl.useProgram(program);
+				gl.bindVertexArray(vao);
+				gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+				gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+				gl.drawArrays(gl.TRIANGLES, 0, vertices.length / 5);
+				gl.bindVertexArray(null);
+			}
+
+			window.addEventListener('resize', drawScene);
+			drawScene();
+		</script>
+	</body>
+</html>
