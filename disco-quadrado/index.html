@@ -127,37 +127,51 @@
 				const fillVertices = [];
 				const lineVertices = [];
 
-				const rings = [
-					[outer[0], outer[1], inner[1], inner[0]],
-					[outer[1], outer[2], inner[2], inner[1]],
-					[outer[2], outer[3], inner[3], inner[2]],
-					[outer[3], outer[0], inner[0], inner[3]],
+				const stripPoints = [
+					outer[0],
+					inner[0],
+					outer[1],
+					inner[1],
+					outer[2],
+					inner[2],
+					outer[3],
+					inner[3],
+					outer[0],
+					inner[0],
 				];
 
-				rings.forEach(([a, b, c, d]) => {
-					pushVertex(fillVertices, a[0], a[1], fillColor);
-					pushVertex(fillVertices, b[0], b[1], fillColor);
-					pushVertex(fillVertices, c[0], c[1], fillColor);
-					pushVertex(fillVertices, a[0], a[1], fillColor);
-					pushVertex(fillVertices, c[0], c[1], fillColor);
-					pushVertex(fillVertices, d[0], d[1], fillColor);
+				stripPoints.forEach((point) => {
+					pushVertex(fillVertices, point[0], point[1], fillColor);
 				});
 
-				const outlinePairs = [
-					[outer[0], outer[1]],
-					[outer[1], outer[2]],
-					[outer[2], outer[3]],
-					[outer[3], outer[0]],
-					[inner[0], inner[1]],
-					[inner[1], inner[2]],
-					[inner[2], inner[3]],
-					[inner[3], inner[0]],
-				];
+				const lineKeys = new Set();
+				const pointKey = (point) =>
+					`${point[0].toFixed(6)},${point[1].toFixed(6)}`;
 
-				outlinePairs.forEach(([a, b]) => {
+				function pushUniqueLine(a, b) {
+					const keyA = pointKey(a);
+					const keyB = pointKey(b);
+					const edgeKey =
+						keyA < keyB ? `${keyA}|${keyB}` : `${keyB}|${keyA}`;
+
+					if (lineKeys.has(edgeKey)) {
+						return;
+					}
+
+					lineKeys.add(edgeKey);
 					pushVertex(lineVertices, a[0], a[1], lineColor);
 					pushVertex(lineVertices, b[0], b[1], lineColor);
-				});
+				}
+
+				for (let i = 0; i < stripPoints.length - 2; i += 1) {
+					const a = stripPoints[i];
+					const b = stripPoints[i + 1];
+					const c = stripPoints[i + 2];
+
+					pushUniqueLine(a, b);
+					pushUniqueLine(b, c);
+					pushUniqueLine(c, a);
+				}
 
 				return {
 					fillVertices: new Float32Array(fillVertices),
@@ -234,7 +248,7 @@
 				gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
 
 				gl.bufferData(gl.ARRAY_BUFFER, fillVertices, gl.STATIC_DRAW);
-				gl.drawArrays(gl.TRIANGLES, 0, fillVertices.length / 5);
+				gl.drawArrays(gl.TRIANGLE_STRIP, 0, fillVertices.length / 5);
 
 				if (showContour) {
 					gl.bufferData(
